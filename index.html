@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Never-Ending Elevator</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Dark background */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars */
+            position: relative;
+        }
+
+        /* Custom scrolling background to enhance the illusion of movement */
+        .scrolling-background {
+            position: absolute;
+            top: -50%; /* Start higher to allow scrolling in both directions */
+            width: 100%;
+            height: 200%; /* Make it taller than the viewport */
+            background: repeating-linear-gradient(
+                to bottom,
+                #1a202c,
+                #1a202c 50px,
+                #2d3748 50px,
+                #2d3748 100px
+            );
+            z-index: -1;
+            animation: scrollBackground 20s linear infinite; /* Base animation */
+            animation-play-state: paused; /* Start paused */
+        }
+
+        @keyframes scrollBackground {
+            from { transform: translateY(0); }
+            to { transform: translateY(-50%); } /* Scrolls down half its height */
+        }
+
+        .elevator-shaft {
+            position: relative;
+            width: 200px;
+            height: 600px;
+            background-color: #3f51b5; /* Blue-grey shaft */
+            border: 8px solid #2a3d7a;
+            border-radius: 1rem;
+            overflow: hidden; /* Hide elevator car when it moves out of view */
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+        }
+
+        .elevator-car {
+            position: absolute;
+            width: 180px;
+            height: 100px;
+            background-color: #7b92df; /* Lighter blue-grey car */
+            border: 4px solid #5a6fa2;
+            border-radius: 0.5rem;
+            left: 50%;
+            top: 50%; /* Start vertically centered */
+            transform: translate(-50%, -50%) translateY(0px); /* Initial position, offset by currentY */
+            transition: none; /* We'll manage movement via JS for fine control */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            font-size: 1.2rem;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            padding: 0.5rem;
+        }
+
+        .button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.2s ease-in-out;
+            border: none;
+            outline: none;
+        }
+        .button-up {
+            background-color: #4CAF50; /* Green */
+        }
+        .button-down {
+            background-color: #F44336; /* Red */
+        }
+        .button-music {
+            background-color: #2196F3; /* Blue */
+        }
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0,0,0,0.15);
+        }
+        .button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="scrollingBackground" class="scrolling-background"></div>
+
+    <div class="flex flex-col items-center justify-center space-y-8 p-4 z-10">
+        <h1 class="text-3xl font-extrabold text-white mb-6 text-center">Never-Ending Elevator</h1>
+        <div class="relative flex items-center justify-center">
+            <div class="elevator-shaft">
+                <div id="elevatorCar" class="elevator-car">
+                    <span id="floorDisplay">Surface</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+            <button id="upButton" class="button button-up">Go Up</button>
+            <button id="downButton" class="button button-down">Go Down</button>
+        </div>
+        <button id="musicButton" class="button button-music">Play Lo-fi Music</button>
+
+        <!-- Hidden YouTube iframe for music playback -->
+        <div id="youtubePlayerContainer" style="display: none;">
+            <iframe id="youtubePlayer"
+                    width="1" height="1"
+                    src="https://www.youtube.com/embed/jfKfPfyJRdk?enablejsapi=1&autoplay=0&loop=1&playlist=jfKfPfyJRdk"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+            </iframe>
+        </div>
+    </div>
+
+    <script type="module">
+        // Mandatory Firebase initialization code (even if not used for this specific app)
+        // Ensure Firebase variables are defined or set to defaults
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let player; // YouTube player object
+        let elevatorSpeed = 2; // Pixels per frame for elevator movement
+        let currentY = 0; // Current translateY value for the elevator car
+        let direction = 0; // 0 = stopped, 1 = up, -1 = down
+        let animationFrameId; // To control the animation loop
+        let floorCount = 0; // Simulate floor numbers
+        const floorHeight = 100; // Visual height of one "floor" for display purposes
+        const shaftHeight = 600; // Height of the visual shaft
+        const carHeight = 100; // Height of the elevator car
+
+        // Get references to DOM elements
+        const elevatorCar = document.getElementById('elevatorCar');
+        const floorDisplay = document.getElementById('floorDisplay');
+        const upButton = document.getElementById('upButton');
+        const downButton = document.getElementById('downButton');
+        const musicButton = document.getElementById('musicButton');
+        const scrollingBackground = document.getElementById('scrollingBackground');
+
+        // Function to load the YouTube Iframe API asynchronously
+        function loadYouTubeIframeAPI() {
+            const tag = document.createElement('script');
+            tag.src = "https://www.youtube.com/iframe_api";
+            const firstScriptTag = document.getElementsByTagName('script')[0];
+            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        }
+
+        // This function will be called by the YouTube Iframe API when it's ready
+        window.onYouTubeIframeAPIReady = function() {
+            player = new YT.Player('youtubePlayer', {
+                events: {
+                    'onReady': onPlayerReady
+                }
+            });
+        };
+
+        // Event handler for when the YouTube player is ready
+        function onPlayerReady(event) {
+            musicButton.addEventListener('click', () => {
+                if (player.getPlayerState() === YT.PlayerState.PLAYING || player.getPlayerState() === YT.PlayerState.BUFFERING) {
+                    player.pauseVideo();
+                    musicButton.textContent = 'Play Lo-fi Music';
+                } else {
+                    player.playVideo();
+                    musicButton.textContent = 'Pause Lo-fi Music';
+                }
+            });
+            player.setLoop(true); // Ensure the video loops
+        }
+
+        // Main animation loop for the elevator
+        function animateElevator() {
+            if (direction !== 0) {
+                currentY -= direction * elevatorSpeed; // Subtract for visual "up" when direction is 1 (floor decreases)
+
+                // Update floor display based on approximate visual floors
+                floorCount = Math.round(-currentY / floorHeight); // Negate currentY as going up decreases floor number
+                floorDisplay.textContent = floorCount === 0 ? 'Surface' : `Floor ${floorCount}`;
+
+                // Apply transform for smooth movement
+                elevatorCar.style.transform = `translate(-50%, -50%) translateY(${currentY}px)`;
+
+                // Simulate never-ending by resetting visual position
+                // If moving up and car goes too high, bring it back down within bounds
+                if (direction === 1 && currentY < -(shaftHeight / 2) - carHeight) {
+                    currentY += shaftHeight; // Adjust by shaft height to bring it back "below"
+                }
+                // If moving down and car goes too low, bring it back up within bounds
+                if (direction === -1 && currentY > (shaftHeight / 2) + carHeight) {
+                    currentY -= shaftHeight; // Adjust by shaft height to bring it back "above"
+                }
+            }
+            animationFrameId = requestAnimationFrame(animateElevator);
+        }
+
+        // Function to set the elevator's direction
+        function setDirection(newDirection) {
+            if (direction === newDirection) {
+                direction = 0; // Toggle off if already moving in that direction
+            } else {
+                direction = newDirection;
+            }
+
+            if (direction === 0) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null; // Clear the animation frame ID
+                scrollingBackground.style.animationPlayState = 'paused'; // Pause background scroll
+            } else {
+                if (!animationFrameId) { // Start animation only if not already running
+                    animateElevator();
+                }
+                // Adjust background animation direction based on elevator movement
+                // If elevator goes up (direction=1), background scrolls down (normal)
+                // If elevator goes down (direction=-1), background scrolls up (reverse)
+                const currentAnimDirection = direction === 1 ? 'normal' : 'reverse';
+                scrollingBackground.style.animationDirection = currentAnimDirection;
+                scrollingBackground.style.animationPlayState = 'running'; // Resume background scroll
+            }
+        }
+
+        // Add event listeners to buttons
+        upButton.addEventListener('click', () => setDirection(1));
+        downButton.addEventListener('click', () => setDirection(-1));
+
+        // Load YouTube API script on window load
+        window.onload = loadYouTubeIframeAPI;
+
+        // Initial setup for the background animation to be paused
+        scrollingBackground.style.animationPlayState = 'paused';
+        scrollingBackground.style.animationIterationCount = 'infinite';
+        scrollingBackground.style.animationTimingFunction = 'linear';
+    </script>
+</body>
+</html>
